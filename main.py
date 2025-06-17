@@ -102,8 +102,8 @@ kb = InlineKeyboardMarkup().add(
     InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{uid}"),
     InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")
 )
-await callback.message.answer(preview, parse_mode="HTML", reply_markup=kb)
-await callback.answer()
+    await callback.message.answer(preview, parse_mode="HTML", reply_markup=kb)
+    await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("ban_"))
 async def ban_user(callback: CallbackQuery):
