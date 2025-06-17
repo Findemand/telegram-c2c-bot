@@ -148,7 +148,8 @@ async def confirm_publish(call: CallbackQuery, state: FSMContext):
 
     await state.finish()
     user_id = call.from_user.id
-    ads[user_id] = data  # сохраняем данные в память
+    data['username'] = call.from_user.username or 'без ника'
+    ads[user_id] = data
 
     preview = (
     f"📦 <b>{data['name']}</b>\n"
