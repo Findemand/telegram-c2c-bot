@@ -1,9 +1,10 @@
-
 import logging
 import os
 import json
+import csv
+from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton, InputFile
 from aiogram.utils import executor
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
@@ -93,20 +94,15 @@ async def get_photos(message: Message, state: FSMContext):
     photos = data.get('photos', [])
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
-
     if len(photos) >= 3:
         await message.answer("Введите описание товара:")
         await ProductForm.description.set()
     else:
-        kb = InlineKeyboardMarkup().add(
-            InlineKeyboardButton("➕ Ещё фото", callback_data="add_more_photo"),
-            InlineKeyboardButton("➡️ Продолжить", callback_data="continue_to_description")
-        )
-        await message.answer("Фото добавлено. Что дальше?", reply_markup=kb)
+        keyboard = InlineKeyboardMarkup().add(InlineKeyboardButton("➡️ Далее", callback_data="photos_done"))
+        await message.answer("Можете отправить ещё фото или нажмите кнопку 'Далее'.", reply_markup=keyboard)
 
-@dp.callback_query_handler(lambda c: c.data == "continue_to_description", state=ProductForm.photos)
-async def continue_to_description(call: CallbackQuery, state: FSMContext):
-    await call.message.delete_reply_markup()
+@dp.callback_query_handler(lambda c: c.data == "photos_done", state=ProductForm.photos)
+async def photos_done(call: CallbackQuery, state: FSMContext):
     await call.message.answer("Введите описание товара:")
     await ProductForm.description.set()
     await call.answer()
@@ -119,11 +115,10 @@ async def skip_photos(message: Message, state: FSMContext):
 @dp.message_handler(state=ProductForm.description)
 async def get_description(message: Message, state: FSMContext):
     await state.update_data(description=message.text.strip())
-    keyboard = InlineKeyboardMarkup(row_width=2)
-    keyboard.add(
+    keyboard = InlineKeyboardMarkup(row_width=2).add(
         InlineKeyboardButton("📦 Доставка", callback_data="delivery_delivery"),
         InlineKeyboardButton("🤝 Личная встреча", callback_data="delivery_meeting"),
-        InlineKeyboardButton("📦+🤝 Оба варианта", callback_data="delivery_both"),
+        InlineKeyboardButton("📦+🤝 Оба варианта", callback_data="delivery_both")
     )
     await message.answer("Выберите способ передачи:", reply_markup=keyboard)
     await ProductForm.delivery.set()
@@ -138,48 +133,39 @@ async def get_delivery(call: CallbackQuery, state: FSMContext):
     await state.update_data(delivery=delivery_methods[call.data])
     data = await state.get_data()
     preview = f"📦 <b>{data['name']}</b>\n🏙 Город: {data['city']}\n📁 Категория: {data['category']}\n📜 Описание: {data['description']}\n🚚 Передача: {data['delivery']}\n👤 Продавец: @{call.from_user.username or 'без ника'}"
-    kb = InlineKeyboardMarkup().add(
+    keyboard = InlineKeyboardMarkup().add(
         InlineKeyboardButton("✅ Опубликовать", callback_data="confirm_yes"),
         InlineKeyboardButton("❌ Отмена", callback_data="confirm_no")
     )
-    await call.message.answer(preview, parse_mode="HTML", reply_markup=kb)
+    await call.message.answer(preview, parse_mode="HTML", reply_markup=keyboard)
     await ProductForm.confirm.set()
     await call.answer()
 
 @dp.callback_query_handler(lambda c: c.data == "confirm_yes", state=ProductForm.confirm)
 async def confirm_publish(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    required_fields = ['category', 'city', 'name', 'photos', 'description', 'delivery']
-    missing = [f for f in required_fields if not data.get(f)]
-    if missing:
+    if not all(data.get(k) for k in ['category', 'city', 'name', 'photos', 'description', 'delivery']):
         await call.message.answer("⚠️ Некоторые поля не заполнены. Заполните анкету заново.")
         await call.answer()
         return
 
-    await state.finish()
-    user_id = call.from_user.id
     data['username'] = call.from_user.username or 'без ника'
+    data['created'] = datetime.now().isoformat()
+    user_id = call.from_user.id
 
     with open(f"data_{user_id}.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False)
 
-    preview = (
-    f"📦 <b>{data['name']}</b>\n"
-    f"📍 Город: {data['city']}\n"
-    f"📁 Категория: {data['category']}\n"
-    f"📜 Описание: {data['description']}\n"
-    f"🚚 Передача: {data['delivery']}\n"
-    f"👤 Продавец: @{call.from_user.username or 'без ника'}"
-)
-
-    kb = InlineKeyboardMarkup().add(
+    preview = f"📦 <b>{data['name']}</b>\n📍 Город: {data['city']}\n📁 Категория: {data['category']}\n📜 Описание: {data['description']}\n🚚 Передача: {data['delivery']}\n👤 Продавец: @{data['username']}"
+    keyboard = InlineKeyboardMarkup().add(
         InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{user_id}"),
         InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}")
     )
 
-    await bot.send_message(MODERATOR_CHAT_ID, preview, parse_mode="HTML", reply_markup=kb)
+    await bot.send_message(MODERATOR_CHAT_ID, preview, parse_mode="HTML", reply_markup=keyboard)
     await call.message.answer("⏳ Объявление отправлено на модерацию.")
     await call.answer()
+    await state.finish()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("approve_"))
 async def approve_ad(callback: CallbackQuery):
@@ -191,16 +177,10 @@ async def approve_ad(callback: CallbackQuery):
         await callback.answer("⛔️ Данные не найдены.")
         return
 
-    caption = (
-    f"📦 <b>{data['name']}</b>\n"
-    f"🏙 Город: {data['city']}\n"
-    f"📁 Категория: {data['category']}\n"
-    f"📜 Описание: {data['description']}\n"
-    f"🚚 Передача: {data['delivery']}\n"
-    f"👤 Продавец: @{data['username']}"
-)
+    caption = f"📦 <b>{data['name']}</b>\n🏙 Город: {data['city']}\n📁 Категория: {data['category']}\n📜 Описание: {data['description']}\n🚚 Передача: {data['delivery']}\n👤 Продавец: @{data['username']}"
+
     if data.get("photos"):
-        await bot.send_photo(CHANNEL_ID, photo=data["photos"][0], caption=caption, parse_mode="HTML")
+        await bot.send_photo(CHANNEL_ID, data["photos"][0], caption=caption, parse_mode="HTML")
     else:
         await bot.send_message(CHANNEL_ID, caption, parse_mode="HTML")
 
@@ -214,6 +194,81 @@ async def reject_ad(callback: CallbackQuery):
     await bot.send_message(user_id, "❌ Ваше объявление отклонено модератором.")
     await callback.message.edit_reply_markup()
     await callback.answer("Отклонено")
+
+# === АДМИН-ПАНЕЛЬ ===
+
+admin_keyboard = InlineKeyboardMarkup(row_width=2).add(
+    InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
+    InlineKeyboardButton("👥 Список объявлений", callback_data="admin_list_ads"),
+    InlineKeyboardButton("📥 Экспорт CSV", callback_data="admin_export_csv"),
+    InlineKeyboardButton("🧼 Очистка старых", callback_data="admin_cleanup")
+)
+
+@dp.message_handler(commands=['admin'])
+async def admin_panel(message: Message):
+    if message.from_user.id != MODERATOR_CHAT_ID:
+        await message.answer("⛔️ Доступ запрещён")
+        return
+    await message.answer("🔧 Админ-панель:", reply_markup=admin_keyboard)
+
+@dp.callback_query_handler(lambda c: c.data == "admin_stats")
+async def admin_stats(callback: CallbackQuery):
+    files = [f for f in os.listdir() if f.startswith("data_") and f.endswith(".json")]
+    await callback.message.answer(f"📦 Всего объявлений: {len(files)}")
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "admin_list_ads")
+async def list_ads(callback: CallbackQuery):
+    files = [f for f in os.listdir() if f.startswith("data_") and f.endswith(".json")]
+    if not files:
+        await callback.message.answer("Нет активных объявлений.")
+        return
+    for f in files:
+        with open(f, encoding="utf-8") as j:
+            data = json.load(j)
+            preview = f"📦 <b>{data['name']}</b>\nГород: {data['city']}\nПродавец: @{data['username']}"
+            await callback.message.answer(preview, parse_mode="HTML")
+    await callback.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "admin_export_csv")
+async def export_csv(callback: CallbackQuery):
+    files = [f for f in os.listdir() if f.startswith("data_") and f.endswith(".json")]
+    if not files:
+        await callback.message.answer("Нет объявлений для экспорта.")
+        return
+    with open("ads_export.csv", "w", newline="", encoding="utf-8") as csvfile:
+        fieldnames = ["user_id", "username", "name", "category", "city", "delivery", "description"]
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        for f in files:
+            with open(f, encoding="utf-8") as j:
+                data = json.load(j)
+                writer.writerow({
+                    "user_id": f.replace("data_", "").replace(".json", ""),
+                    "username": data.get("username"),
+                    "name": data.get("name"),
+                    "category": data.get("category"),
+                    "city": data.get("city"),
+                    "delivery": data.get("delivery"),
+                    "description": data.get("description")
+                })
+    await bot.send_document(callback.from_user.id, InputFile("ads_export.csv"))
+    await callback.answer("CSV создан")
+
+@dp.callback_query_handler(lambda c: c.data == "admin_cleanup")
+async def cleanup_old(callback: CallbackQuery):
+    now = datetime.now()
+    count = 0
+    for f in os.listdir():
+        if f.startswith("data_") and f.endswith(".json"):
+            with open(f, encoding="utf-8") as j:
+                data = json.load(j)
+                created = datetime.fromisoformat(data.get("created", "2000-01-01T00:00:00"))
+                if now - created > timedelta(days=30):
+                    os.remove(f)
+                    count += 1
+    await callback.message.answer(f"🧹 Удалено {count} устаревших объявлений")
+    await callback.answer()
 
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
