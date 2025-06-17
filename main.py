@@ -91,14 +91,25 @@ async def get_name(message: Message, state: FSMContext):
 async def get_photos(message: Message, state: FSMContext):
     data = await state.get_data()
     photos = data.get('photos', [])
-    photos = photos if photos else []
     photos.append(message.photo[-1].file_id)
     await state.update_data(photos=photos)
+
     if len(photos) >= 3:
         await message.answer("Введите описание товара:")
         await ProductForm.description.set()
     else:
-        await message.answer("Можете отправить ещё фото или напишите 'далее'.")
+        kb = InlineKeyboardMarkup().add(
+            InlineKeyboardButton("➕ Ещё фото", callback_data="add_more_photo"),
+            InlineKeyboardButton("➡️ Продолжить", callback_data="continue_to_description")
+        )
+        await message.answer("Фото добавлено. Что дальше?", reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data == "continue_to_description", state=ProductForm.photos)
+async def continue_to_description(call: CallbackQuery, state: FSMContext):
+    await call.message.delete_reply_markup()
+    await call.message.answer("Введите описание товара:")
+    await ProductForm.description.set()
+    await call.answer()
 
 @dp.message_handler(lambda msg: msg.text.lower() == "далее", state=ProductForm.photos)
 async def skip_photos(message: Message, state: FSMContext):
