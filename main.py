@@ -2,6 +2,7 @@
 import logging
 import os
 import json
+import os
 import csv
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
@@ -47,6 +48,11 @@ class ProductForm(StatesGroup):
     confirm = State()
 
 @dp.message_handler(commands=['start', 'sell'])
+async def cmd_start(message: Message):
+    banned = load_banned_users()
+    if message.from_user.id in banned:
+        await message.answer("🚫 Вы заблокированы и не можете публиковать объявления.")
+        return
 async def cmd_start(message: Message):
     banned = load_banned_users()
     if message.from_user.id in banned:
@@ -135,3 +141,36 @@ async def show_banned(callback: CallbackQuery):
     await callback.answer()
 
     executor.start_polling(dp, skip_updates=True)
+
+
+def load_banned_users():
+    if not os.path.exists("banned_users.json"):
+        return []
+    with open("banned_users.json", "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def save_banned_users(data):
+    with open("banned_users.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+
+@dp.callback_query_handler(lambda c: c.data.startswith("ban_"))
+async def ban_user(callback: CallbackQuery):
+    user_id = int(callback.data.split("_")[1])
+    banned = load_banned_users()
+    if user_id not in banned:
+        banned.append(user_id)
+        save_banned_users(banned)
+    await bot.send_message(user_id, "🚫 Вы были заблокированы и не можете публиковать объявления.")
+    await callback.message.edit_reply_markup()
+    await callback.answer("Пользователь забанен")
+
+@dp.callback_query_handler(lambda c: c.data.startswith("unban_"))
+async def unban_user(callback: CallbackQuery):
+    user_id = int(callback.data.split("_")[1])
+    banned = load_banned_users()
+    if user_id in banned:
+        banned.remove(user_id)
+        save_banned_users(banned)
+    await bot.send_message(user_id, "✅ Вы были разблокированы. Теперь вы можете публиковать объявления.")
+    await callback.message.edit_reply_markup()
+    await callback.answer("Пользователь разбанен")
