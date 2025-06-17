@@ -171,6 +171,7 @@ async def confirm_publish(call: CallbackQuery, state: FSMContext):
 async def approve_ad(callback: CallbackQuery):
     user_id = int(callback.data.split("_")[1])
     data = ads.get(user_id)
+
     if not data:
         await callback.answer("⛔️ Данные не найдены.")
         return
