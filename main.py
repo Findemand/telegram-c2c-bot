@@ -150,7 +150,14 @@ async def confirm_publish(call: CallbackQuery, state: FSMContext):
     user_id = call.from_user.id
     ads[user_id] = data  # сохраняем данные в память
 
-    preview = f"📦 <b>{data['name']}</b>\\n🏙 Город: {data['city']}\\n📁 Категория: {data['category']}\\n📜 Описание: {data['description']}\\n🚚 Передача: {data['delivery']}\\n👤 Продавец: @{call.from_user.username or 'без ника'}
+    preview = (
+    f"📦 <b>{data['name']}</b>\n"
+    f"📍 Город: {data['city']}\n"
+    f"📁 Категория: {data['category']}\n"
+    f"📜 Описание: {data['description']}\n"
+    f"🚚 Передача: {data['delivery']}\n"
+    f"👤 Продавец: @{call.from_user.username or 'без ника'}"
+)
     kb = InlineKeyboardMarkup().add(
         InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{user_id}"),
         InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}")
