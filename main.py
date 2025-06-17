@@ -85,14 +85,17 @@ async def list_ads(callback: CallbackQuery):
         with open(f, encoding="utf-8") as j:
             data = json.load(j)
             uid = int(f.replace("data_", "").replace(".json", ""))
-            preview = f"📦 <b>{data['name']}</b>
-Город: {data['city']}
-Продавец: @{data['username']}"
-            kb = InlineKeyboardMarkup().add(
-                InlineKeyboardButton("🚫 Забанить", callback_data=f"ban_{uid}"),
-                InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{uid}"),
-                InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")
-            )
+    preview = (
+    f"📦 <b>{data['name']}</b>\n"
+    f"🏙 Город: {data['city']}\n"
+    f"👤 Продавец: @{data['username']}"
+)
+
+kb = InlineKeyboardMarkup().add(
+    InlineKeyboardButton("🚫 Забанить", callback_data=f"ban_{uid}"),
+    InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{uid}"),
+    InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")
+)
             await callback.message.answer(preview, parse_mode="HTML", reply_markup=kb)
     await callback.answer()
 
