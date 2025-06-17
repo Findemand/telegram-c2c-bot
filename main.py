@@ -176,6 +176,16 @@ async def ban(callback: CallbackQuery):
 if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
 
-    await bot.send_message(user_id, "✅ Вы были разблокированы. Теперь вы можете публиковать объявления.")
+@dp.callback_query_handler(lambda c: c.data.startswith("unban_"))
+async def unban(callback: CallbackQuery):
+    uid = int(callback.data.split("_")[1])
+    banned = load_banned_users()
+    if uid in banned:
+        banned.remove(uid)
+        save_banned_users(banned)
+    await bot.send_message(uid, "✅ Вы были разблокированы. Теперь вы можете публиковать объявления.")
     await callback.message.edit_reply_markup()
     await callback.answer("Пользователь разбанен")
+    
+if __name__ == '__main__':
+    executor.start_polling(dp, skip_updates=True)
