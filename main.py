@@ -180,8 +180,14 @@ async def approve_ad(callback: CallbackQuery):
         await callback.answer("⛔️ Данные не найдены.")
         return
 
-    caption = ( f"📦 <b>{data['name']}</b>\\n🏙 Город: {data['city']}\\n📁 Категория: {data['category']}\\n📜 Описание: {data['description']}\\n🚚 Передача: {data['delivery']}\\n👤 Продавец: @{data['username']}")
-
+    caption = (
+    f"📦 <b>{data['name']}</b>\n"
+    f"🏙 Город: {data['city']}\n"
+    f"📁 Категория: {data['category']}\n"
+    f"📜 Описание: {data['description']}\n"
+    f"🚚 Передача: {data['delivery']}\n"
+    f"👤 Продавец: @{data['username']}"
+)
     if data.get("photos"):
         await bot.send_photo(CHANNEL_ID, photo=data["photos"][0], caption=caption, parse_mode="HTML")
     else:
