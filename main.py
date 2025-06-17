@@ -153,18 +153,13 @@ async def confirm_publish(call: CallbackQuery, state: FSMContext):
         json.dump(data, f, ensure_ascii=False)
 
     preview = (
-        f"📦 <b>{data['name']}</b>
-"
-        f"📍 Город: {data['city']}
-"
-        f"📁 Категория: {data['category']}
-"
-        f"📜 Описание: {data['description']}
-"
-        f"🚚 Передача: {data['delivery']}
-"
-        f"👤 Продавец: @{data['username']}"
-    )
+    f"📦 <b>{data['name']}</b>\n"
+    f"📍 Город: {data['city']}\n"
+    f"📁 Категория: {data['category']}\n"
+    f"📜 Описание: {data['description']}\n"
+    f"🚚 Передача: {data['delivery']}\n"
+    f"👤 Продавец: @{call.from_user.username or 'без ника'}"
+)
 
     kb = InlineKeyboardMarkup().add(
         InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{user_id}"),
