@@ -158,7 +158,13 @@ async def confirm_publish(call: CallbackQuery, state: FSMContext):
 @dp.callback_query_handler(lambda c: c.data.startswith("approve_"))
 async def approve_ad(callback: CallbackQuery):
     user_id = int(callback.data.split("_")[1])
-    msg = callback.message.text
+   msg = callback.message.text
+photos = callback.message.photo or []  # ← если в будущем добавим фото
+data = await dp.storage.get_data(user=user_id)  # получаем все данные по user_id
+
+if data.get("photos"):
+    await bot.send_photo(CHANNEL_ID, photo=data["photos"][0], caption=msg, parse_mode="HTML")
+else:
     await bot.send_message(CHANNEL_ID, msg, parse_mode="HTML")
     await bot.send_message(user_id, "✅ Ваше объявление одобрено и опубликовано.")
     await callback.message.edit_reply_markup()
