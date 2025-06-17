@@ -2,7 +2,6 @@
 import logging
 import os
 import json
-import os
 import csv
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, types
@@ -12,9 +11,6 @@ from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import State, StatesGroup
 from dotenv import load_dotenv
-
-from inline_categories import get_inline_categories_keyboard
-from inline_cities import get_city_keyboard
 
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -40,7 +36,6 @@ def save_banned_users(users):
 class ProductForm(StatesGroup):
     category = State()
     city = State()
-    custom_city = State()
     name = State()
     photos = State()
     description = State()
@@ -49,128 +44,138 @@ class ProductForm(StatesGroup):
 
 @dp.message_handler(commands=['start', 'sell'])
 async def cmd_start(message: Message):
-    banned = load_banned_users()
-    if message.from_user.id in banned:
+    if message.from_user.id in load_banned_users():
         await message.answer("🚫 Вы заблокированы и не можете публиковать объявления.")
         return
-async def cmd_start(message: Message):
-    banned = load_banned_users()
-    if message.from_user.id in banned:
-        await message.answer("⛔️ Вы были заблокированы и не можете публиковать объявления.")
-        return
-    await message.answer("Выберите категорию товара:", reply_markup=get_inline_categories_keyboard())
+    keyboard = InlineKeyboardMarkup(row_width=2).add(
+        InlineKeyboardButton("📦 Одежда", callback_data="cat_clothes"),
+        InlineKeyboardButton("📱 Техника", callback_data="cat_tech")
+    )
+    await message.answer("Выберите категорию товара:", reply_markup=keyboard)
     await ProductForm.category.set()
 
-@dp.message_handler(commands=['admin'])
-async def admin_panel(message: Message):
-    if message.from_user.id != MODERATOR_CHAT_ID:
-        await message.answer("⛔️ Доступ запрещен")
-        return
+@dp.callback_query_handler(lambda c: c.data.startswith("cat_"), state=ProductForm.category)
+async def category_selected(call: CallbackQuery, state: FSMContext):
+    await state.update_data(category=call.data.replace("cat_", ""))
     keyboard = InlineKeyboardMarkup(row_width=2).add(
-        InlineKeyboardButton("📊 Статистика", callback_data="admin_stats"),
-        InlineKeyboardButton("👥 Список объявлений", callback_data="admin_list_ads"),
-        InlineKeyboardButton("📥 Экспорт CSV", callback_data="admin_export_csv"),
-        InlineKeyboardButton("🧼 Очистка старых", callback_data="admin_cleanup"),
-        InlineKeyboardButton("👤 Заблокированные", callback_data="admin_banned_list")
+        InlineKeyboardButton("📍 Москва", callback_data="city_moscow"),
+        InlineKeyboardButton("📍 Питер", callback_data="city_spb")
     )
-    await message.answer("🔧 Админ-панель:", reply_markup=keyboard)
+    await call.message.answer("Выберите город:", reply_markup=keyboard)
+    await ProductForm.city.set()
+    await call.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "admin_stats")
-async def admin_stats(callback: CallbackQuery):
-    files = [f for f in os.listdir() if f.startswith("data_") and f.endswith(".json")]
-    await callback.message.answer(f"📦 Всего объявлений: {len(files)}")
+@dp.callback_query_handler(lambda c: c.data.startswith("city_"), state=ProductForm.city)
+async def city_selected(call: CallbackQuery, state: FSMContext):
+    await state.update_data(city=call.data.replace("city_", ""))
+    await call.message.answer("Введите название товара:")
+    await ProductForm.name.set()
+    await call.answer()
+
+@dp.message_handler(state=ProductForm.name)
+async def get_name(message: Message, state: FSMContext):
+    await state.update_data(name=message.text.strip())
+    await message.answer("Отправьте до 3 фото товара:")
+    await ProductForm.photos.set()
+
+@dp.message_handler(content_types=['photo'], state=ProductForm.photos)
+async def get_photos(message: Message, state: FSMContext):
+    data = await state.get_data()
+    photos = data.get("photos", [])
+    photos.append(message.photo[-1].file_id)
+    await state.update_data(photos=photos)
+    if len(photos) >= 3:
+        await message.answer("Введите описание:")
+        await ProductForm.description.set()
+    else:
+        kb = InlineKeyboardMarkup().add(InlineKeyboardButton("Далее", callback_data="skip_photos"))
+        await message.answer("Можете отправить ещё фото или нажмите 'Далее'.", reply_markup=kb)
+
+@dp.callback_query_handler(lambda c: c.data == "skip_photos", state=ProductForm.photos)
+async def skip_photos(call: CallbackQuery, state: FSMContext):
+    await call.message.answer("Введите описание:")
+    await ProductForm.description.set()
+    await call.answer()
+
+@dp.message_handler(state=ProductForm.description)
+async def get_description(message: Message, state: FSMContext):
+    await state.update_data(description=message.text.strip())
+    kb = InlineKeyboardMarkup(row_width=2).add(
+        InlineKeyboardButton("📦 Доставка", callback_data="delivery_delivery"),
+        InlineKeyboardButton("🤝 Встреча", callback_data="delivery_meeting")
+    )
+    await message.answer("Выберите способ передачи:", reply_markup=kb)
+    await ProductForm.delivery.set()
+
+@dp.callback_query_handler(lambda c: c.data.startswith("delivery_"), state=ProductForm.delivery)
+async def get_delivery(call: CallbackQuery, state: FSMContext):
+    await state.update_data(delivery=call.data.replace("delivery_", ""))
+    data = await state.get_data()
+    await call.message.answer(
+        f"📦 <b>{data['name']}</b>\n🏙 Город: {data['city']}\n📁 Категория: {data['category']}\n📜 Описание: {data['description']}\n🚚 Передача: {data['delivery']}\n👤 @{call.from_user.username or 'без ника'}",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup().add(
+            InlineKeyboardButton("✅ Опубликовать", callback_data="confirm_yes"),
+            InlineKeyboardButton("❌ Отмена", callback_data="confirm_no")
+        )
+    )
+    await ProductForm.confirm.set()
+    await call.answer()
+
+@dp.callback_query_handler(lambda c: c.data == "confirm_yes", state=ProductForm.confirm)
+async def confirm_post(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    user_id = call.from_user.id
+    data['username'] = call.from_user.username or "без ника"
+    with open(f"data_{user_id}.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False)
+    kb = InlineKeyboardMarkup().add(
+        InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{user_id}"),
+        InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{user_id}"),
+        InlineKeyboardButton("🚫 Забанить", callback_data=f"ban_{user_id}")
+    )
+    await bot.send_message(MODERATOR_CHAT_ID, f"Новое объявление от @{data['username']}", reply_markup=kb)
+    await call.message.answer("Объявление отправлено на модерацию.")
+    await state.finish()
+    await call.answer()
+
+@dp.callback_query_handler(lambda c: c.data.startswith("approve_"))
+async def approve(callback: CallbackQuery):
+    uid = callback.data.split("_")[1]
+    with open(f"data_{uid}.json", "r", encoding="utf-8") as f:
+        data = json.load(f)
+    caption = (
+        f"📦 <b>{data['name']}</b>\n🏙 {data['city']}\n📁 {data['category']}\n📜 {data['description']}\n🚚 {data['delivery']}\n👤 @{data['username']}"
+    )
+    if data.get("photos"):
+        await bot.send_photo(CHANNEL_ID, data["photos"][0], caption=caption, parse_mode="HTML")
+    else:
+        await bot.send_message(CHANNEL_ID, caption, parse_mode="HTML")
+    await bot.send_message(uid, "✅ Ваше объявление опубликовано.")
+    await callback.message.edit_reply_markup()
     await callback.answer()
 
-@dp.callback_query_handler(lambda c: c.data == "admin_list_ads")
-async def list_ads(callback: CallbackQuery):
-    files = [f for f in os.listdir() if f.startswith("data_") and f.endswith(".json")]
-    if not files:
-        await callback.message.answer("Нет активных объявлений.")
-        return
-    for f in files:
-        with open(f, encoding="utf-8") as j:
-            data = json.load(j)
-            uid = int(f.replace("data_", "").replace(".json", ""))
-    preview = (
-    f"📦 <b>{data['name']}</b>\n"
-    f"🏙 Город: {data['city']}\n"
-    f"👤 Продавец: @{data['username']}"
-)
-
-kb = InlineKeyboardMarkup().add(
-    InlineKeyboardButton("🚫 Забанить", callback_data=f"ban_{uid}"),
-    InlineKeyboardButton("✅ Одобрить", callback_data=f"approve_{uid}"),
-    InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{uid}")
-)
-    await callback.message.answer(preview, parse_mode="HTML", reply_markup=kb)
+@dp.callback_query_handler(lambda c: c.data.startswith("reject_"))
+async def reject(callback: CallbackQuery):
+    uid = callback.data.split("_")[1]
+    await bot.send_message(uid, "❌ Ваше объявление отклонено.")
+    await callback.message.edit_reply_markup()
     await callback.answer()
 
 @dp.callback_query_handler(lambda c: c.data.startswith("ban_"))
-async def ban_user(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
+async def ban(callback: CallbackQuery):
+    uid = int(callback.data.split("_")[1])
     banned = load_banned_users()
-    if user_id not in banned:
-        banned.append(user_id)
+    if uid not in banned:
+        banned.append(uid)
         save_banned_users(banned)
-    await bot.send_message(user_id, "🚫 Вы были заблокированы и не можете публиковать объявления.")
-    await callback.message.answer("✅ Пользователь заблокирован.")
-    await callback.answer()
+    await bot.send_message(uid, "🚫 Вы заблокированы.")
+    await callback.message.edit_reply_markup()
+    await callback.answer("Пользователь заблокирован")
 
-@dp.callback_query_handler(lambda c: c.data.startswith("unban_"))
-async def unban_user(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
-    banned = load_banned_users()
-    if user_id in banned:
-        banned.remove(user_id)
-        save_banned_users(banned)
-    await bot.send_message(user_id, "✅ Вы были разблокированы. Теперь вы можете публиковать объявления.")
-    await callback.message.answer("✅ Пользователь разблокирован.")
-    await callback.answer()
-
-@dp.callback_query_handler(lambda c: c.data == "admin_banned_list")
-async def show_banned(callback: CallbackQuery):
-    banned = load_banned_users()
-    if not banned:
-        await callback.message.answer("📭 Список заблокированных пуст.")
-        return
-    for uid in banned:
-        kb = InlineKeyboardMarkup().add(
-            InlineKeyboardButton("🔓 Разблокировать", callback_data=f"unban_{uid}")
-        )
-        await callback.message.answer(f"👤 ID: <code>{uid}</code>", parse_mode="HTML", reply_markup=kb)
-    await callback.answer()
-
+if __name__ == '__main__':
     executor.start_polling(dp, skip_updates=True)
 
-
-def load_banned_users():
-    if not os.path.exists("banned_users.json"):
-        return []
-    with open("banned_users.json", "r", encoding="utf-8") as f:
-        return json.load(f)
-
-def save_banned_users(data):
-    with open("banned_users.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False)
-
-@dp.callback_query_handler(lambda c: c.data.startswith("ban_"))
-async def ban_user(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
-    banned = load_banned_users()
-    if user_id not in banned:
-        banned.append(user_id)
-        save_banned_users(banned)
-    await bot.send_message(user_id, "🚫 Вы были заблокированы и не можете публиковать объявления.")
-    await callback.message.edit_reply_markup()
-    await callback.answer("Пользователь забанен")
-
-@dp.callback_query_handler(lambda c: c.data.startswith("unban_"))
-async def unban_user(callback: CallbackQuery):
-    user_id = int(callback.data.split("_")[1])
-    banned = load_banned_users()
-    if user_id in banned:
-        banned.remove(user_id)
-        save_banned_users(banned)
     await bot.send_message(user_id, "✅ Вы были разблокированы. Теперь вы можете публиковать объявления.")
     await callback.message.edit_reply_markup()
     await callback.answer("Пользователь разбанен")
